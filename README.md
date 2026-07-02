@@ -75,7 +75,8 @@ A lightweight, elegant calculator Chrome/Edge extension that lives in your brows
 
 - **Manifest V3** — Latest Chrome extension format
 - **Service Worker** — Lightweight background script
-- **math.js** — Safe mathematical expression evaluation
+- **math.js** — Safe mathematical expression evaluation, 
+- **math.js** — Safe mathematical expression evaluation,
 - **CSS Variables** — Dynamic theming without JavaScript
 - **Chrome Storage API** — Local persistence for user data
 
