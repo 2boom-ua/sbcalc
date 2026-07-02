@@ -1,0 +1,454 @@
+<!-- Sidebar Hub - Calculator -->
+<!-- Copyright 2boom, 2026 -->
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Calculator</title>
+<style>
+/* === GLOBAL VARIABLES (LIGHT THEME DEFAULT) === */
+:root {
+    --bg-body: #ffffff;
+    --bg-button: #E8E8E8;
+    --bg-button-digit: #F3F3F3;
+    --bg-button-hover: #E1E1E1;
+    --bg-operator: #f0f0f0;
+    --bg-operator-hover: #d8d8d8;
+    --bg-equals: #60a5fa;
+    --bg-equals-hover: #3b82f6;
+    --btn-blue: #60a5fa;
+    --btn-blue-hover: #3b82f6;
+    --btn-red: #fb7185;
+    --btn-red-hover: #f43f5e;
+    --text-primary: #333333;
+    --text-secondary: #555555;
+    --text-button: #333333;
+    --text-equals: #ffffff;
+    --border-input: #c0c0c0;
+    --radius-button: 4px;
+    --tooltip-bg: #ffffff;
+    --tooltip-text: #555555;
+}
+
+/* === DARK THEME === */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-body: #1e1e1e;
+        --bg-button: #303030;
+        --bg-button-digit: #404040;
+        --bg-button-hover: #505050;
+        --bg-operator: #3a3a3a;
+        --bg-operator-hover: #4a4a4a;
+        --bg-equals: #4a90d9;
+        --bg-equals-hover: #5a9fe9;
+        --text-primary: #cccccc;
+        --text-secondary: #aaaaaa;
+        --text-button: #cccccc;
+        --text-equals: #ffffff;
+        --border-input: #555555;
+        --radius-button: 4px;
+        --tooltip-bg: #555555;
+        --tooltip-text: #cccccc;
+    }
+}
+
+* {
+    box-sizing: border-box;
+    user-select: none;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-body);
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.calculator {
+    width: 100%;
+    height: 100%;
+    padding: 5px 16px 8px 16px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-body);
+}
+
+.history-container {
+    width: 100%;
+    height: 150px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    margin-bottom: 4px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    background: var(--bg-button-digit);
+    border: 1px solid var(--bg-button);
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+
+.history-line {
+    width: 100%;
+    font-size: 15px;
+    text-align: right;
+    color: var(--text-secondary);
+    padding: 2px 0;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: text;
+    cursor: pointer;
+    opacity: 0.9;
+    user-select: none
+}
+
+.display-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    width: 100%;
+    /*overflow: hidden; */
+    margin-bottom: 20px;
+}
+
+.display {
+    width: 100%;
+    min-height: 56px;
+    line-height: 56px;
+    font-size: 31px;
+    text-align: right;
+    padding: 0 4px;
+    border: none;
+    border-bottom: 2px solid var(--border-input);
+    background: transparent;
+    color: var(--text-primary);
+    outline: none;
+    flex: 1;
+    min-width: 0;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    cursor: text;
+    caret-color: transparent;
+    overflow: hidden;
+    text-overflow: clip;
+    white-space: nowrap;
+    direction: rtl;
+    unicode-bidi: plaintext;
+}
+
+.display:focus {
+    border-bottom-color: var(--border-input);
+}
+
+.copy-btn {
+    width: 40px;
+    height: 40px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-button);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s;
+    position: relative;
+    margin-left: auto;
+}
+
+.copy-btn:hover {
+    background: var(--bg-button-digit);
+}
+
+.copy-btn img {
+    width: 20px;
+    height: 20px;
+    opacity: 0.5;
+    filter: grayscale(0.3);
+}
+
+@media (prefers-color-scheme: dark) {
+    .copy-btn img {
+        filter: invert(1);
+    }
+}
+
+.copy-btn[data-tooltip] {
+    position: relative;
+}
+
+.copy-btn[data-tooltip]:hover::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: 125%;
+    left: calc(50% - 45px);
+    transform: translateX(-50%);
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 1000;
+    pointer-events: none;
+    font-weight: normal;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.buttons {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    flex: 1;
+    align-content: start;
+}
+
+.btn, .btn-digit {
+    height: 52px;
+    font-size: 22px;
+    border: 1px solid var(--bg-button);
+    border-radius: var(--radius-button);
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: background 0.15s;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    
+}
+
+@media (prefers-color-scheme: dark) {
+    .btn {
+        border: 1px solid var(--bg-button);
+    }
+}
+
+.btn-mem {
+    font-size: 17px;
+}
+
+.btn-font {
+    font-size: 24px;
+}
+
+.btn-font-weight  {
+    font-weight: 600;
+}
+
+.btn-digit {
+    background: var(--bg-button-digit);
+}
+
+.btn {
+    background: var(--bg-button);
+    border: 1px solid transparent;
+}
+
+.btn:hover, .btn-digit:hover {
+    background: var(--bg-button-hover);
+}
+
+.btn-equals {
+    
+    background: var(--bg-equals);
+    color: var(--text-equals);
+}
+
+.btn-equals:hover {
+    background: var(--bg-equals-hover);
+}
+
+.memory-indicator {
+    font-size: 14px;
+    opacity: 0.7;
+    color: var(--text-secondary);
+    text-align: left;
+    padding: 0 4px;
+    min-height: 20px;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+/* === FOOTER === */
+.footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 10px 16px;
+    background: var(--bg-body);
+    color: var(--text-secondary);
+    text-align: center;
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.4;
+    z-index: 100;
+    user-select: none;
+    pointer-events: none;
+}
+
+.footer strong {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.toast {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    font-weight: normal;
+}
+
+.toast.show {
+    opacity: 1;
+}
+
+.indicators {
+    display: flex;
+    gap: 8px;
+    font-size: 14px;
+    opacity: 0.7;
+    color: var(--text-secondary);
+    padding: 0 4px;
+    min-height: 20px;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+
+.exp-indicator {
+    font-size: 14px;
+    opacity: 0.7;
+    color: var(--text-secondary);
+    text-align: left;
+    padding: 0 4px;
+    min-height: 20px;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+
+/* === CUSTOM SCROLLBAR === */
+@media (prefers-color-scheme: dark) {
+    ::-webkit-scrollbar {
+        width: 4px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #555555;
+        border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: #777777;
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    ::-webkit-scrollbar {
+        width: 4px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #cccccc;
+        border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: #aaaaaa;
+    }
+}
+</style>
+</head>
+<body>
+
+<div class="calculator">
+    <div class="history-container" id="historyContainer"></div>
+    <div class="indicators">
+        <span class="memory-indicator" id="memoryIndicator"></span>
+        <span class="exp-indicator" id="expIndicator"></span>
+    </div>
+    <div class="display-wrapper">
+        <input type="text" class="display" id="display" value="0">
+        <button class="copy-btn" id="copyBtn" data-tooltip="Copy result">
+            <img src="/icons/copy_icon.svg" alt="Copy">
+        </button>
+    </div>
+
+    <div class="buttons">
+        <!-- === ROW 1: MEMORY === -->
+        <button class="btn-digit btn-mem" id="btnMPlus">M+</button>
+        <button class="btn-digit btn-mem" id="btnMMinus">M-</button>
+        <button class="btn-digit btn-mem" id="btnMR">MR</button>
+        <button class="btn-digit btn-mem" id="btnMC">MC</button>
+
+        <!-- === ROW 2: FUNCTIONS === -->
+        <button class="btn-digit btn-mem" id="btnSquare">x²</button>
+        <button class="btn-digit btn-font-weight btn-mem" id="btnSqrt">²√</button>
+        <button class="btn-digit btn-mem" id="btnInverse">x⁻¹</button>
+        <button class="btn-digit btn-mem" id="btnFactorial">x!</button>
+        
+        
+        <button class="btn btn-mem" id="btnParenOpen">(</button>
+        <button class="btn btn-mem" id="btnParenClose">)</button>
+        
+        <button class="btn btn-mem" id="btnRound">Rnd</button>
+        <button class="btn btn-mem" id="btnPercent">%</button>
+
+        <!-- === ROW 3 === -->
+        <button class="btn btn-mem" id="btnClear">C</button>
+        <button class="btn btn-mem" id="btnClearEntry">CE</button>
+        <button class="btn" id="btnBackspace">←</button>
+        <button class="btn" id="btnDivide">÷</button>
+
+        <!-- === ROW 4 === -->
+        <button class="btn-digit" id="btn7">7</button>
+        <button class="btn-digit" id="btn8">8</button>
+        <button class="btn-digit" id="btn9">9</button>
+        <button class="btn" id="btnMultiply">×</button>
+
+        <!-- === ROW 5 === -->
+        <button class="btn-digit" id="btn4">4</button>
+        <button class="btn-digit" id="btn5">5</button>
+        <button class="btn-digit" id="btn6">6</button>
+        <button class="btn" id="btnAdd">+</button>
+
+        <!-- === ROW 6 === -->
+        <button class="btn-digit" id="btn1">1</button>
+        <button class="btn-digit" id="btn2">2</button>
+        <button class="btn-digit" id="btn3">3</button>
+        <button class="btn" id="btnSubtract">−</button>
+
+        <!-- === ROW 7 === -->
+        <button class="btn btn-mem" id="btnSign">±</button>
+        <button class="btn-digit" id="btn0">0</button>
+        <button class="btn btn-font" id="btnDecimal">.</button>
+        <button class="btn btn-equals btn-font" id="btnEquals">=</button>
+    </div>
+
+    <div class="footer">
+        <span>Sidebar <strong>Calculator</strong>, &copy; 2boom, 2026.</span>
+    </div>
+</div>
+
+<div class="toast" id="toast">Copied!</div>
+
+<script src="libs/math.min.js"></script>
+<script src="calc.js"></script>
+
+</body>
+</html>

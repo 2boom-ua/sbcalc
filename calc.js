@@ -1,0 +1,802 @@
+// Sidebar Hub - Calculator
+// Copyright 2boom, 2026
+// math.js - Copyright (C) 2013-2026 Jos de Jong <wjosdejong@gmail.com>
+
+const display = document.getElementById("display");
+const historyContainer = document.getElementById("historyContainer");
+const copyBtn = document.getElementById("copyBtn");
+const toast = document.getElementById("toast");
+
+let expression = "0";
+let historyLines = [];
+let memory = 0;
+let memoryIndicator = false;
+let justEvaluated = false;
+let expressionMode = false;
+
+// Storage keys
+const STORAGE_CALC_HISTORY = "calcHistory";
+const STORAGE_MEMORY = "calcMemory";
+const MAX_HISTORY = 5;
+
+let clickTimer = null;
+let longPressTimer = null;
+let isLongPress = false;
+let copyLongPressTimer = null;
+let isCopyLongPress = false;
+let historyLongPressTimer = null;
+let isHistoryLongPress = false;
+
+// ========== FORMAT NUMBER WITH SPACES ==========
+function formatNumber(num) {
+    if (num === "Error") return "Error";
+    if (num === "Infinity") return "Infinity";
+    if (isNaN(num)) return "0";
+    
+    let str = String(num);
+    if (str.includes("e")) return str;
+    
+    let isNegative = str.startsWith("-");
+    let absStr = isNegative ? str.slice(1) : str;
+    let parts = absStr.split(".");
+    let integerPart = parts[0];
+    let decimalPart = parts[1] || "";
+    
+    let formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    let result = isNegative ? "-" + formattedInteger : formattedInteger;
+    if (decimalPart) {
+        result += "." + decimalPart;
+    }
+    return result;
+}
+
+function formatDisplayValue(value) {
+    if (value === "Error") return "Error";
+    if (value === "Infinity") return "Infinity";
+    let num = parseFloat(value);
+    if (isNaN(num)) return "0";
+    return formatNumber(num);
+}
+
+// ========== TOAST ==========
+let toastTimeout = null;
+function showToast(message) {
+    toast.textContent = message;
+    toast.classList.add("show");
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+        toast.classList.remove("show");
+    }, 1500);
+}
+
+// ========== COPY ==========
+function copyResult(useComma) {
+    const value = display.value;
+    if (value === "Error" || value === "Infinity" || value === "0") {
+        showToast("Nothing to copy");
+        return;
+    }
+    let text = value.replace(/\s/g, "");
+    let message = "Copied!";
+    if (useComma && text.includes(".")) {
+        text = text.replace(/\./g, ",");
+        message = "Copied in comma format";
+    }
+    navigator.clipboard.writeText(text).then(() => {
+        showToast(message);
+    }).catch(() => {
+        showToast("Copy failed");
+    });
+}
+
+// ========== PASTE ==========
+function pasteFromClipboard(text) {
+    const cleaned = text.replace(/\s/g, "").replace(/,/g, ".");
+    const num = parseFloat(cleaned);
+    if (!isNaN(num) && isFinite(num)) {
+        expression = String(num);
+        justEvaluated = false;
+        updateDisplay();
+        return true;
+    }
+    return false;
+}
+
+// ========== EVALUATE ==========
+function evaluateExpression(expr) {
+    try {
+        let sanitized = expr.replace(/×/g, '*')
+                           .replace(/÷/g, '/')
+                           .replace(/−/g, '-')
+                           .replace(/²/g, '^2')
+                           .replace(/⁻¹/g, '^-1')
+                           .replace(/√\(/g, 'sqrt(');
+        const result = math.evaluate(sanitized);
+        if (!isFinite(result)) return "Error";
+        return result;
+    } catch (e) {
+        return "Error";
+    }
+}
+
+// ========== ROUND ==========
+function handleRound() {
+    if (justEvaluated) {
+        const val = parseFloat(expression);
+        if (!isNaN(val)) {
+            expression = String(Math.round(val));
+            justEvaluated = false;
+            updateDisplay();
+        }
+        return;
+    }
+    
+    const match = expression.match(/([\d.]+)$/);
+    if (match) {
+        const num = parseFloat(match[1]);
+        if (!isNaN(num)) {
+            const rounded = Math.round(num);
+            const before = expression.slice(0, -match[1].length);
+            expression = before + String(rounded);
+            updateDisplay();
+        }
+    }
+}
+
+// ========== DISPLAY ==========
+function updateDisplay() {
+    if (expression === "") expression = "0";
+    display.value = expression;
+    display.scrollLeft = display.scrollWidth;
+    
+    // Dynamic font size based on expression length
+    const len = expression.length;
+    if (len <= 12) {
+        display.style.fontSize = "31px";
+    } else if (len <= 16) {
+        display.style.fontSize = "29px";
+    } else if (len <= 20) {
+        display.style.fontSize = "27px";
+    } else {
+        display.style.fontSize = "25px";
+    }
+    
+    saveHistory();
+}
+
+function updateMemoryIndicator() {
+    const indicator = document.getElementById("memoryIndicator");
+    if (memoryIndicator) {
+        indicator.textContent = "M " + formatNumber(memory);
+    } else {
+        indicator.textContent = "";
+    }
+    saveMemory();
+}
+
+function updateExpressionIndicator() {
+    const indicator = document.getElementById("expIndicator");
+    if (!indicator) return;
+    if (expressionMode) {
+        indicator.textContent = "EXP";
+    } else {
+        indicator.textContent = "";
+    }
+}
+
+// ========== STORAGE ==========
+function saveHistory() {
+    chrome.storage.local.set({
+        [STORAGE_CALC_HISTORY]: {
+            expression: expression,
+            historyLines: historyLines.slice(-MAX_HISTORY)
+        }
+    });
+}
+
+function saveMemory() {
+    chrome.storage.local.set({
+        [STORAGE_MEMORY]: {
+            memory: memory,
+            memoryIndicator: memoryIndicator
+        }
+    });
+}
+
+function loadHistory() {
+    chrome.storage.local.get([STORAGE_CALC_HISTORY, STORAGE_MEMORY], (result) => {
+        if (result[STORAGE_CALC_HISTORY]) {
+            const data = result[STORAGE_CALC_HISTORY];
+            if (data.expression) expression = data.expression;
+            if (data.historyLines) {
+                historyLines = data.historyLines.slice(-MAX_HISTORY);
+                renderHistory();
+            }
+        }
+        if (result[STORAGE_MEMORY]) {
+            const memData = result[STORAGE_MEMORY];
+            memory = memData.memory || 0;
+            memoryIndicator = memData.memoryIndicator || false;
+        }
+        updateDisplay();
+        updateMemoryIndicator();
+        updateExpressionIndicator();
+    });
+}
+
+// ========== HISTORY ==========
+function renderHistory() {
+    historyContainer.innerHTML = "";
+    const lines = historyLines.slice(-MAX_HISTORY);
+    lines.forEach((line, index) => {
+        const div = document.createElement("div");
+        div.className = "history-line";
+        div.textContent = line;
+        if (index === lines.length - 1) {
+            div.style.fontSize = "16px";
+            div.style.color = "var(--text-primary)";
+        }
+        historyContainer.appendChild(div);
+    });
+}
+
+function addHistoryLine(text) {
+    historyLines.push(text);
+    if (historyLines.length > MAX_HISTORY * 2) {
+        historyLines = historyLines.slice(-MAX_HISTORY);
+    }
+    renderHistory();
+    saveHistory();
+}
+
+// ========== EXTRACT LAST NUMBER ==========
+function extractLastNumber(expr) {
+    const match = expr.match(/([\d.]+)$/);
+    if (match) return parseFloat(match[1]);
+    return null;
+}
+
+function extractLastOperator(expr) {
+    const match = expr.match(/([+\-×÷])\s*[\d.]+$/);
+    if (match) return match[1];
+    return null;
+}
+
+// ========== FACTORIAL ==========
+function factorial(n) {
+    if (n < 0) return "Error";
+    if (n === 0 || n === 1) return 1;
+    let result = 1;
+    for (let i = 2; i <= n; i++) {
+        result *= i;
+    }
+    return result;
+}
+
+// ========== INPUT FUNCTIONS ==========
+function inputDigit(digit) {
+    if (justEvaluated) {
+        expression = digit;
+        justEvaluated = false;
+    } else if (expression === "0" && digit !== ".") {
+        expression = digit;
+    } else {
+        expression += digit;
+    }
+    updateDisplay();
+}
+
+function inputDecimal() {
+    if (justEvaluated) {
+        expression = "0.";
+        justEvaluated = false;
+        updateDisplay();
+        return;
+    }
+    if (expression.match(/[\s+\-×÷]$/)) {
+        expression += "0.";
+        updateDisplay();
+        return;
+    }
+    if (expression === "" || expression === "0") {
+        expression = "0.";
+        updateDisplay();
+        return;
+    }
+    if (!expression.match(/\d\.\d*$/)) {
+        expression += ".";
+    }
+    updateDisplay();
+}
+
+function handleOperator(op) {
+    if (justEvaluated) {
+        expression += " " + op + " ";
+        justEvaluated = false;
+    } else {
+        expression = expression.replace(/\s*[+\-×÷]\s*$/, "");
+        expression += " " + op + " ";
+    }
+    updateDisplay();
+}
+
+function handleParenOpen() {
+    if (justEvaluated) {
+        expression = "(";
+        expressionMode = true;
+        justEvaluated = false;
+        updateDisplay();
+        updateExpressionIndicator();
+        return;
+    }
+    
+    // If expression is exactly "0", replace with "("
+    if (expression === "0") {
+        expression = "(";
+        expressionMode = true;
+        updateDisplay();
+        updateExpressionIndicator();
+        return;
+    }
+    
+    // If expression ends with number or ) - ignore
+    if (expression.match(/[\d.)]$/)) {
+        return;
+    }
+    
+    expression += "(";
+    expressionMode = true;
+    updateDisplay();
+    updateExpressionIndicator();
+}
+
+function handleParenClose() {
+    if (justEvaluated) {
+        expression += ")";
+        justEvaluated = false;
+        updateDisplay();
+        return;
+    }
+    expression += ")";
+    updateDisplay();
+}
+
+function handlePercent() {
+    const lastNum = extractLastNumber(expression);
+    const lastOp = extractLastOperator(expression);
+    
+    if (lastNum !== null && lastOp) {
+        const fullExpr = expression.replace(/\s*[+\-×÷]\s*[\d.]+$/, "");
+        const prevMatch = fullExpr.match(/([\d.]+)$/);
+        if (prevMatch) {
+            const prevNum = parseFloat(prevMatch[1]);
+            const percentValue = prevNum * (lastNum / 100);
+            const rounded = parseFloat(percentValue.toFixed(10));
+            
+            // Store percent data for history
+            window._percentData = {
+                prevNum: prevNum,
+                op: lastOp,
+                percentNum: lastNum,
+                percentValue: rounded
+            };
+            
+            // Replace last number with calculated percent value
+            expression = expression.replace(/[\d.]+$/, String(rounded));
+            justEvaluated = true;
+            updateDisplay();
+            return;
+        }
+    }
+    
+    // No operator - simple percent
+    if (justEvaluated) {
+        expression = "(" + expression + "/100)";
+        justEvaluated = false;
+        updateDisplay();
+        return;
+    }
+    expression += "%";
+    updateDisplay();
+}
+
+function handleBackspace() {
+    if (justEvaluated) {
+        // Remove last digit from result, not clear everything
+        if (expression.length > 1) {
+            expression = expression.slice(0, -1);
+        } else {
+            expression = "0";
+            justEvaluated = false;
+        }
+        updateDisplay();
+        return;
+    }
+    if (expression.length > 1) {
+        expression = expression.slice(0, -1);
+    } else {
+        expression = "0";
+    }
+    // If expression becomes empty or only "(", turn off expression mode
+    if (expression === "0" || expression === "(") {
+        expressionMode = false;
+        updateExpressionIndicator();
+    }
+    updateDisplay();
+}
+
+// CE - clears only expression, history stays
+function handleClearEntry() {
+    expression = "0";
+    justEvaluated = false;
+    expressionMode = false;
+    updateDisplay();
+    updateExpressionIndicator();
+}
+
+// C - clears expression + history
+function handleClearAll() {
+    expression = "0";
+    justEvaluated = false;
+    expressionMode = false;
+    historyLines = [];
+    renderHistory();
+    updateDisplay();
+    updateExpressionIndicator();
+}
+
+function handleToggleSign() {
+    // Error or just evaluated
+    if (expression === "Error" || justEvaluated) {
+        const val = parseFloat(expression);
+        if (!isNaN(val)) {
+            expression = String(-val);
+            justEvaluated = false;
+            updateDisplay();
+        }
+        return;
+    }
+    
+    // Expression ends with operator or empty
+    if (expression === "" || expression.match(/[\s+\-×÷]$/)) {
+        return;
+    }
+    
+    // Find the last number (with optional minus)
+    const match = expression.match(/([+\-]?[\d.]+)$/);
+    if (match) {
+        let num = match[1];
+        const before = expression.slice(0, -num.length);
+        if (num.startsWith("-")) {
+            expression = before + num.slice(1);  // remove minus
+        } else {
+            expression = before + "-" + num;     // add minus
+        }
+        updateDisplay();
+    }
+}
+
+function handleSquare() {
+    if (justEvaluated) {
+        expression = "(" + expression + ")^2";
+        justEvaluated = false;
+        updateDisplay();
+        return;
+    }
+    expression += "²";
+    updateDisplay();
+}
+
+function handleSqrt() {
+    if (justEvaluated) {
+        expression = "√(" + expression + ")";
+        justEvaluated = false;
+        updateDisplay();
+        return;
+    }
+    const match = expression.match(/([\d.]+)$/);
+    if (match) {
+        const num = match[1];
+        const before = expression.slice(0, -num.length);
+        expression = before + "√(" + num + ")";
+    } else {
+        expression += "√(";
+    }
+    updateDisplay();
+}
+
+function handleInverse() {
+    if (justEvaluated) {
+        expression = "1/(" + expression + ")";
+        justEvaluated = false;
+        updateDisplay();
+        return;
+    }
+    expression += "⁻¹";
+    updateDisplay();
+}
+
+function handleFactorial() {
+    if (justEvaluated) {
+        const val = parseFloat(expression);
+        if (!isNaN(val) && Number.isInteger(val) && val >= 0 && val <= 170) {
+            const result = factorial(val);
+            expression = String(result);
+            justEvaluated = false;
+            updateDisplay();
+        } else {
+            showToast("Error");
+        }
+        return;
+    }
+    
+    const match = expression.match(/([\d.]+)$/);
+    if (match) {
+        const num = parseFloat(match[1]);
+        if (Number.isInteger(num) && num >= 0 && num <= 170) {
+            const result = factorial(num);
+            const before = expression.slice(0, -match[1].length);
+            expression = before + String(result);
+            updateDisplay();
+        } else {
+            showToast("Error");
+        }
+    }
+}
+
+function handleRound() {
+    if (justEvaluated) {
+        const val = parseFloat(expression);
+        if (!isNaN(val)) {
+            // If number is already integer, do nothing
+            if (Number.isInteger(val)) {
+                return;
+            }
+            expression = String(Math.round(val));
+            justEvaluated = false;
+            updateDisplay();
+        }
+        return;
+    }
+    
+    const match = expression.match(/([\d.]+)$/);
+    if (match) {
+        const num = parseFloat(match[1]);
+        if (!isNaN(num)) {
+            // If number is already integer, do nothing
+            if (Number.isInteger(num)) {
+                return;
+            }
+            const rounded = Math.round(num);
+            const before = expression.slice(0, -match[1].length);
+            expression = before + String(rounded);
+            updateDisplay();
+        }
+    }
+}
+
+function handleEquals() {
+    // Check if percent data exists
+    if (window._percentData) {
+        const data = window._percentData;
+        const result = evaluateExpression(expression);
+        if (result !== "Error") {
+            const roundedResult = parseFloat(result.toFixed(12));
+            const formattedResult = formatNumber(roundedResult);
+            const formattedPrev = formatNumber(data.prevNum);
+            const formattedPercent = formatNumber(data.percentValue);
+            addHistoryLine(`${formattedPrev} ${data.op} ${data.percentNum}% (${formattedPercent}) = ${formattedResult}`);
+            window._percentData = null;
+            expression = String(roundedResult);
+            justEvaluated = true;
+            expressionMode = false;
+            updateDisplay();
+            updateExpressionIndicator();
+            return;
+        }
+        window._percentData = null;
+    }
+    
+    // Normal evaluation
+    const result = evaluateExpression(expression);
+    if (result === "Error") {
+        addHistoryLine(`${expression} = Error`);
+        expression = "Error";
+        expressionMode = false;
+        updateDisplay();
+        updateExpressionIndicator();
+        return;
+    }
+    const rounded = parseFloat(result.toFixed(12));
+    const formattedResult = formatNumber(rounded);
+    addHistoryLine(`${expression} = ${formattedResult}`);
+    expression = String(rounded);
+    justEvaluated = true;
+    expressionMode = false;
+    updateDisplay();
+    updateExpressionIndicator();
+}
+
+// ========== MEMORY FUNCTIONS ==========
+function memoryAdd() {
+    const val = parseFloat(expression);
+    if (!isNaN(val) && isFinite(val)) {
+        memory += val;
+        memory = parseFloat(memory.toFixed(2));
+        memoryIndicator = true;
+        updateMemoryIndicator();
+        showToast("M+");
+    }
+}
+
+function memorySubtract() {
+    const val = parseFloat(expression);
+    if (!isNaN(val) && isFinite(val)) {
+        memory -= val;
+        memory = parseFloat(memory.toFixed(2));
+        memoryIndicator = true;
+        updateMemoryIndicator();
+        showToast("M-");
+    }
+}
+
+function memoryRecall() {
+    if (memoryIndicator) {
+        expression = String(memory);
+        justEvaluated = false;
+        updateDisplay();
+        showToast("MR");
+    }
+}
+
+function memoryClear() {
+    memory = 0;
+    memoryIndicator = false;
+    updateMemoryIndicator();
+    showToast("MC");
+}
+
+// ========== DISPLAY INPUT FILTER ==========
+display.addEventListener("keydown", (e) => {
+    const key = e.key;
+    const allowed = /^[0-9]$/.test(key) || key === "." || key === "," || key === "-";
+    
+    if (e.ctrlKey || e.metaKey) return;
+    if (key === "Backspace" || key === "Delete" || key === "ArrowLeft" || key === "ArrowRight" || key === "Tab") return;
+    if (!allowed) e.preventDefault();
+});
+
+// ========== HISTORY LONG PRESS / CLICK ==========
+historyContainer.addEventListener("mousedown", (e) => {
+    const line = e.target.closest(".history-line");
+    if (!line) return;
+    
+    isHistoryLongPress = false;
+    historyLongPressTimer = setTimeout(() => {
+        isHistoryLongPress = true;
+        const text = line.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            showToast("History row copied!");
+        }).catch(() => {
+            showToast("Copy failed");
+        });
+    }, 500);
+});
+
+historyContainer.addEventListener("mouseup", (e) => {
+    clearTimeout(historyLongPressTimer);
+    if (!isHistoryLongPress) {
+        const line = e.target.closest(".history-line");
+        if (!line) return;
+        const text = line.textContent;
+        const match = text.match(/([-\d,.\s]+)$/);
+        if (match) {
+            const num = parseFloat(match[1].replace(/\s/g, "").replace(",", "."));
+            if (!isNaN(num) && isFinite(num)) {
+                expression = String(num);
+                justEvaluated = false;
+                updateDisplay();
+            }
+        }
+    }
+});
+
+historyContainer.addEventListener("mouseleave", () => {
+    clearTimeout(historyLongPressTimer);
+});
+
+// ========== EVENT LISTENERS ==========
+document.getElementById("btn0").addEventListener("click", () => inputDigit("0"));
+document.getElementById("btn1").addEventListener("click", () => inputDigit("1"));
+document.getElementById("btn2").addEventListener("click", () => inputDigit("2"));
+document.getElementById("btn3").addEventListener("click", () => inputDigit("3"));
+document.getElementById("btn4").addEventListener("click", () => inputDigit("4"));
+document.getElementById("btn5").addEventListener("click", () => inputDigit("5"));
+document.getElementById("btn6").addEventListener("click", () => inputDigit("6"));
+document.getElementById("btn7").addEventListener("click", () => inputDigit("7"));
+document.getElementById("btn8").addEventListener("click", () => inputDigit("8"));
+document.getElementById("btn9").addEventListener("click", () => inputDigit("9"));
+
+document.getElementById("btnDecimal").addEventListener("click", inputDecimal);
+document.getElementById("btnClear").addEventListener("click", handleClearAll);
+document.getElementById("btnClearEntry").addEventListener("click", handleClearEntry);
+document.getElementById("btnPercent").addEventListener("click", handlePercent);
+document.getElementById("btnSign").addEventListener("click", handleToggleSign);
+
+document.getElementById("btnSquare").addEventListener("click", handleSquare);
+document.getElementById("btnSqrt").addEventListener("click", handleSqrt);
+document.getElementById("btnInverse").addEventListener("click", handleInverse);
+document.getElementById("btnFactorial").addEventListener("click", handleFactorial);
+document.getElementById("btnRound").addEventListener("click", handleRound);
+
+document.getElementById("btnAdd").addEventListener("click", () => handleOperator("+"));
+document.getElementById("btnSubtract").addEventListener("click", () => handleOperator("-"));
+document.getElementById("btnMultiply").addEventListener("click", () => handleOperator("×"));
+document.getElementById("btnDivide").addEventListener("click", () => handleOperator("÷"));
+
+document.getElementById("btnParenOpen").addEventListener("click", handleParenOpen);
+document.getElementById("btnParenClose").addEventListener("click", handleParenClose);
+
+document.getElementById("btnEquals").addEventListener("click", handleEquals);
+
+document.getElementById("btnMPlus").addEventListener("click", memoryAdd);
+document.getElementById("btnMMinus").addEventListener("click", memorySubtract);
+document.getElementById("btnMR").addEventListener("click", memoryRecall);
+document.getElementById("btnMC").addEventListener("click", memoryClear);
+
+const btnBackspace = document.getElementById("btnBackspace");
+btnBackspace.addEventListener("mousedown", (e) => {
+    isLongPress = false;
+    longPressTimer = setTimeout(() => {
+        isLongPress = true;
+        handleClearEntry();
+        e.preventDefault();
+    }, 500);
+});
+btnBackspace.addEventListener("mouseup", () => {
+    clearTimeout(longPressTimer);
+    if (!isLongPress) handleBackspace();
+});
+btnBackspace.addEventListener("mouseleave", () => {
+    clearTimeout(longPressTimer);
+});
+
+copyBtn.addEventListener("mousedown", (e) => {
+    isCopyLongPress = false;
+    copyLongPressTimer = setTimeout(() => {
+        isCopyLongPress = true;
+        copyResult(true);
+        e.preventDefault();
+    }, 500);
+});
+copyBtn.addEventListener("mouseup", () => {
+    clearTimeout(copyLongPressTimer);
+    if (!isCopyLongPress) copyResult(false);
+});
+copyBtn.addEventListener("mouseleave", () => {
+    clearTimeout(copyLongPressTimer);
+});
+
+display.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text");
+    pasteFromClipboard(text);
+});
+
+document.addEventListener("keydown", (e) => {
+    if (e.key >= "0" && e.key <= "9") inputDigit(e.key);
+    else if (e.key === "." || e.key === ",") { e.preventDefault(); inputDecimal(); }
+    else if (e.key === "+") handleOperator("+");
+    else if (e.key === "-") handleOperator("-");
+    else if (e.key === "*") handleOperator("×");
+    else if (e.key === "/") { e.preventDefault(); handleOperator("÷"); }
+    else if (e.key === "Enter" || e.key === "=") { e.preventDefault(); handleEquals(); }
+    else if (e.key === "Escape" || e.key === "c" || e.key === "C") handleClearAll();
+    else if (e.key === "%") handlePercent();
+    else if (e.key === "Backspace") { e.preventDefault(); handleBackspace(); }
+    else if (e.key === "(") handleParenOpen();
+    else if (e.key === ")") handleParenClose();
+});
+
+// ========== INIT ==========
+loadHistory();
