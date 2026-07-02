@@ -13,6 +13,7 @@ let memory = 0;
 let memoryIndicator = false;
 let justEvaluated = false;
 let expressionMode = false;
+let intermediateHistoryIndex = -1;
 
 // Storage keys
 const STORAGE_CALC_HISTORY = "calcHistory";
@@ -100,6 +101,13 @@ function pasteFromClipboard(text) {
         return true;
     }
     return false;
+}
+
+function lockButtons() {
+    buttonsLocked = true;
+    setTimeout(() => {
+        buttonsLocked = false;
+    }, 1000);
 }
 
 // ========== EVALUATE ==========
@@ -310,6 +318,25 @@ function inputDecimal() {
 }
 
 function handleOperator(op) {
+    // Calculate intermediate result before adding operator
+    const tempExpr = expression.replace(/\s*[+\-×÷]\s*$/, "");
+    if (tempExpr && !tempExpr.match(/^[\d.]+$/)) {
+        const result = evaluateExpression(tempExpr);
+        if (result !== "Error" && isFinite(result)) {
+            const formatted = formatNumber(result);
+            // Remove previous intermediate line if exists
+            if (intermediateHistoryIndex !== -1) {
+                historyLines.splice(intermediateHistoryIndex, 1);
+                intermediateHistoryIndex = -1;
+            }
+            // Add new intermediate line
+            historyLines.push(tempExpr + " = " + formatted);
+            intermediateHistoryIndex = historyLines.length - 1;
+            renderHistory();
+            saveHistory();
+        }
+    }
+    
     if (justEvaluated) {
         expression += " " + op + " ";
         justEvaluated = false;
@@ -440,6 +467,7 @@ function handleClearAll() {
     justEvaluated = false;
     expressionMode = false;
     historyLines = [];
+    intermediateHistoryIndex = -1;
     renderHistory();
     updateDisplay();
     updateExpressionIndicator();
@@ -576,6 +604,14 @@ function handleRound() {
 }
 
 function handleEquals() {
+    lockButtons();
+    
+    // Remove intermediate history line if exists
+    if (intermediateHistoryIndex !== -1) {
+        historyLines.splice(intermediateHistoryIndex, 1);
+        intermediateHistoryIndex = -1;
+    }
+    
     // Check if percent data exists
     if (window._percentData) {
         const data = window._percentData;
