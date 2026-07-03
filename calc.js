@@ -12,8 +12,8 @@ let historyLines = [];
 let memory = 0;
 let memoryIndicator = false;
 let justEvaluated = false;
-let expressionMode = false;
 let intermediateHistoryIndex = -1;
+let hasError = false;
 
 // Storage keys
 const STORAGE_CALC_HISTORY = "calcHistory";
@@ -27,6 +27,15 @@ let copyLongPressTimer = null;
 let isCopyLongPress = false;
 let historyLongPressTimer = null;
 let isHistoryLongPress = false;
+
+let buttonsLocked = false;
+
+function lockButtons() {
+    buttonsLocked = true;
+    setTimeout(() => {
+        buttonsLocked = false;
+    }, 1000);
+}
 
 // ========== FORMAT NUMBER WITH SPACES ==========
 function formatNumber(num) {
@@ -97,17 +106,11 @@ function pasteFromClipboard(text) {
     if (!isNaN(num) && isFinite(num)) {
         expression = String(num);
         justEvaluated = false;
+        hasError = false;
         updateDisplay();
         return true;
     }
     return false;
-}
-
-function lockButtons() {
-    buttonsLocked = true;
-    setTimeout(() => {
-        buttonsLocked = false;
-    }, 1000);
 }
 
 // ========== EVALUATE ==========
@@ -134,6 +137,7 @@ function handleRound() {
         if (!isNaN(val)) {
             expression = String(Math.round(val));
             justEvaluated = false;
+            hasError = false;
             updateDisplay();
         }
         return;
@@ -146,8 +150,25 @@ function handleRound() {
             const rounded = Math.round(num);
             const before = expression.slice(0, -match[1].length);
             expression = before + String(rounded);
+            hasError = false;
             updateDisplay();
         }
+    }
+}
+
+// ========== PAREN INDICATOR ==========
+function updateParenIndicator() {
+    const indicator = document.getElementById("parenIndicator");
+    if (!indicator) return;
+    
+    const openCount = (expression.match(/\(/g) || []).length;
+    const closeCount = (expression.match(/\)/g) || []).length;
+    const balance = openCount - closeCount;
+    
+    if (balance > 0) {
+        indicator.textContent = `(${balance}`;
+    } else {
+        indicator.textContent = "";
     }
 }
 
@@ -156,20 +177,24 @@ function updateDisplay() {
     if (expression === "") expression = "0";
     display.value = expression;
     display.scrollLeft = display.scrollWidth;
-    
-    // Dynamic font size based on expression length
+
     const len = expression.length;
-    if (len <= 12) {
-        display.style.fontSize = "31px";
-    } else if (len <= 16) {
-        display.style.fontSize = "29px";
-    } else if (len <= 20) {
-        display.style.fontSize = "27px";
-    } else {
-        display.style.fontSize = "25px";
-    }
-    
+    const fontSteps = [
+        { max: 8, size: 31 },
+        { max: 12, size: 30 },
+        { max: 16, size: 29 },
+        { max: 20, size: 28 },
+        { max: 24, size: 27 },
+        { max: 28, size: 26 },
+        { max: Infinity, size: 25 }
+    ];
+
+    const fontSize = fontSteps.find(step => len <= step.max).size;
+    display.style.fontSize = `${fontSize}px`;
+
     saveHistory();
+    updateParenIndicator();
+    updateStatusIndicator();
 }
 
 function updateMemoryIndicator() {
@@ -180,16 +205,6 @@ function updateMemoryIndicator() {
         indicator.textContent = "";
     }
     saveMemory();
-}
-
-function updateExpressionIndicator() {
-    const indicator = document.getElementById("expIndicator");
-    if (!indicator) return;
-    if (expressionMode) {
-        indicator.textContent = "EXP";
-    } else {
-        indicator.textContent = "";
-    }
 }
 
 // ========== STORAGE ==========
@@ -215,7 +230,15 @@ function loadHistory() {
     chrome.storage.local.get([STORAGE_CALC_HISTORY, STORAGE_MEMORY], (result) => {
         if (result[STORAGE_CALC_HISTORY]) {
             const data = result[STORAGE_CALC_HISTORY];
-            if (data.expression) expression = data.expression;
+            if (data.expression) {
+                // If expression is a result (just a number without operators), reset to 0
+                if (/^[\d.\s-]+$/.test(data.expression) && !/[+\-×÷()]/.test(data.expression)) {
+                    expression = "0";
+                    justEvaluated = false;
+                } else {
+                    expression = data.expression;
+                }
+            }
             if (data.historyLines) {
                 historyLines = data.historyLines.slice(-MAX_HISTORY);
                 renderHistory();
@@ -228,7 +251,6 @@ function loadHistory() {
         }
         updateDisplay();
         updateMemoryIndicator();
-        updateExpressionIndicator();
     });
 }
 
@@ -291,6 +313,7 @@ function inputDigit(digit) {
     } else {
         expression += digit;
     }
+    hasError = false;
     updateDisplay();
 }
 
@@ -298,29 +321,33 @@ function inputDecimal() {
     if (justEvaluated) {
         expression = "0.";
         justEvaluated = false;
+        hasError = false;
         updateDisplay();
         return;
     }
     if (expression.match(/[\s+\-×÷]$/)) {
         expression += "0.";
+        hasError = false;
         updateDisplay();
         return;
     }
     if (expression === "" || expression === "0") {
         expression = "0.";
+        hasError = false;
         updateDisplay();
         return;
     }
     if (!expression.match(/\d\.\d*$/)) {
         expression += ".";
     }
+    hasError = false;
     updateDisplay();
 }
 
 function handleOperator(op) {
     // Calculate intermediate result before adding operator
     const tempExpr = expression.replace(/\s*[+\-×÷]\s*$/, "");
-    if (tempExpr && !tempExpr.match(/^[\d.]+$/)) {
+    if (tempExpr && /[+\-×÷]/.test(tempExpr)) {
         const result = evaluateExpression(tempExpr);
         if (result !== "Error" && isFinite(result)) {
             const formatted = formatNumber(result);
@@ -344,47 +371,45 @@ function handleOperator(op) {
         expression = expression.replace(/\s*[+\-×÷]\s*$/, "");
         expression += " " + op + " ";
     }
+    hasError = false;
     updateDisplay();
 }
 
 function handleParenOpen() {
     if (justEvaluated) {
         expression = "(";
-        expressionMode = true;
         justEvaluated = false;
+        hasError = false;
         updateDisplay();
-        updateExpressionIndicator();
         return;
     }
     
-    // If expression is exactly "0", replace with "("
     if (expression === "0") {
         expression = "(";
-        expressionMode = true;
+        hasError = false;
         updateDisplay();
-        updateExpressionIndicator();
         return;
     }
     
-    // If expression ends with number or ) - ignore
     if (expression.match(/[\d.)]$/)) {
         return;
     }
     
     expression += "(";
-    expressionMode = true;
+    hasError = false;
     updateDisplay();
-    updateExpressionIndicator();
 }
 
 function handleParenClose() {
     if (justEvaluated) {
         expression += ")";
         justEvaluated = false;
+        hasError = false;
         updateDisplay();
         return;
     }
     expression += ")";
+    hasError = false;
     updateDisplay();
 }
 
@@ -400,7 +425,6 @@ function handlePercent() {
             const percentValue = prevNum * (lastNum / 100);
             const rounded = parseFloat(percentValue.toFixed(10));
             
-            // Store percent data for history
             window._percentData = {
                 prevNum: prevNum,
                 op: lastOp,
@@ -408,34 +432,35 @@ function handlePercent() {
                 percentValue: rounded
             };
             
-            // Replace last number with calculated percent value
             expression = expression.replace(/[\d.]+$/, String(rounded));
             justEvaluated = true;
+            hasError = false;
             updateDisplay();
             return;
         }
     }
     
-    // No operator - simple percent
     if (justEvaluated) {
         expression = "(" + expression + "/100)";
         justEvaluated = false;
+        hasError = false;
         updateDisplay();
         return;
     }
     expression += "%";
+    hasError = false;
     updateDisplay();
 }
 
 function handleBackspace() {
     if (justEvaluated) {
-        // Remove last digit from result, not clear everything
         if (expression.length > 1) {
             expression = expression.slice(0, -1);
         } else {
             expression = "0";
             justEvaluated = false;
         }
+        hasError = false;
         updateDisplay();
         return;
     }
@@ -443,75 +468,87 @@ function handleBackspace() {
         expression = expression.slice(0, -1);
     } else {
         expression = "0";
+        if (intermediateHistoryIndex !== -1) {
+            historyLines.splice(intermediateHistoryIndex, 1);
+            intermediateHistoryIndex = -1;
+            renderHistory();
+            saveHistory();
+        }
     }
-    // If expression becomes empty or only "(", turn off expression mode
-    if (expression === "0" || expression === "(") {
-        expressionMode = false;
-        updateExpressionIndicator();
-    }
+    hasError = false;
     updateDisplay();
 }
 
-// CE - clears only expression, history stays
 function handleClearEntry() {
     expression = "0";
     justEvaluated = false;
-    expressionMode = false;
+    hasError = false;
+    if (intermediateHistoryIndex !== -1) {
+        historyLines.splice(intermediateHistoryIndex, 1);
+        intermediateHistoryIndex = -1;
+        renderHistory();
+        saveHistory();
+    }
     updateDisplay();
-    updateExpressionIndicator();
 }
 
-// C - clears expression + history
 function handleClearAll() {
     expression = "0";
     justEvaluated = false;
-    expressionMode = false;
+    hasError = false;
     historyLines = [];
     intermediateHistoryIndex = -1;
     renderHistory();
     updateDisplay();
-    updateExpressionIndicator();
 }
 
 function handleToggleSign() {
-    // Error or just evaluated
     if (expression === "Error" || justEvaluated) {
         const val = parseFloat(expression);
         if (!isNaN(val)) {
             expression = String(-val);
             justEvaluated = false;
+            hasError = false;
             updateDisplay();
         }
         return;
     }
     
-    // Expression ends with operator or empty
     if (expression === "" || expression.match(/[\s+\-×÷]$/)) {
         return;
     }
     
-    // Find the last number (with optional minus)
     const match = expression.match(/([+\-]?[\d.]+)$/);
     if (match) {
         let num = match[1];
         const before = expression.slice(0, -num.length);
         if (num.startsWith("-")) {
-            expression = before + num.slice(1);  // remove minus
+            expression = before + num.slice(1);
         } else {
-            expression = before + "-" + num;     // add minus
+            expression = before + "-" + num;
         }
+        hasError = false;
         updateDisplay();
     }
 }
 
 function handleSquare() {
+    if (!expression.match(/[\d]$/)) {
+        return;
+    }
+    
     if (justEvaluated) {
-        expression = "(" + expression + ")^2";
-        justEvaluated = false;
-        updateDisplay();
+        const num = parseFloat(expression);
+        if (!isNaN(num)) {
+            expression = String(num) + "²";
+            justEvaluated = false;
+            hasError = false;
+            updateDisplay();
+        }
         return;
     }
     expression += "²";
+    hasError = false;
     updateDisplay();
 }
 
@@ -519,6 +556,7 @@ function handleSqrt() {
     if (justEvaluated) {
         expression = "√(" + expression + ")";
         justEvaluated = false;
+        hasError = false;
         updateDisplay();
         return;
     }
@@ -530,6 +568,7 @@ function handleSqrt() {
     } else {
         expression += "√(";
     }
+    hasError = false;
     updateDisplay();
 }
 
@@ -537,10 +576,12 @@ function handleInverse() {
     if (justEvaluated) {
         expression = "1/(" + expression + ")";
         justEvaluated = false;
+        hasError = false;
         updateDisplay();
         return;
     }
     expression += "⁻¹";
+    hasError = false;
     updateDisplay();
 }
 
@@ -551,6 +592,7 @@ function handleFactorial() {
             const result = factorial(val);
             expression = String(result);
             justEvaluated = false;
+            hasError = false;
             updateDisplay();
         } else {
             showToast("Error");
@@ -565,6 +607,7 @@ function handleFactorial() {
             const result = factorial(num);
             const before = expression.slice(0, -match[1].length);
             expression = before + String(result);
+            hasError = false;
             updateDisplay();
         } else {
             showToast("Error");
@@ -576,12 +619,12 @@ function handleRound() {
     if (justEvaluated) {
         const val = parseFloat(expression);
         if (!isNaN(val)) {
-            // If number is already integer, do nothing
             if (Number.isInteger(val)) {
                 return;
             }
             expression = String(Math.round(val));
             justEvaluated = false;
+            hasError = false;
             updateDisplay();
         }
         return;
@@ -591,13 +634,13 @@ function handleRound() {
     if (match) {
         const num = parseFloat(match[1]);
         if (!isNaN(num)) {
-            // If number is already integer, do nothing
             if (Number.isInteger(num)) {
                 return;
             }
             const rounded = Math.round(num);
             const before = expression.slice(0, -match[1].length);
             expression = before + String(rounded);
+            hasError = false;
             updateDisplay();
         }
     }
@@ -605,6 +648,11 @@ function handleRound() {
 
 function handleEquals() {
     lockButtons();
+    
+    // If expression ends with operator, ignore
+    if (expression.match(/[\s+\-×÷]$/)) {
+        return;
+    }
     
     // Remove intermediate history line if exists
     if (intermediateHistoryIndex !== -1) {
@@ -625,9 +673,8 @@ function handleEquals() {
             window._percentData = null;
             expression = String(roundedResult);
             justEvaluated = true;
-            expressionMode = false;
+            hasError = false;
             updateDisplay();
-            updateExpressionIndicator();
             return;
         }
         window._percentData = null;
@@ -636,11 +683,8 @@ function handleEquals() {
     // Normal evaluation
     const result = evaluateExpression(expression);
     if (result === "Error") {
-        addHistoryLine(`${expression} = Error`);
-        expression = "Error";
-        expressionMode = false;
+        hasError = true;
         updateDisplay();
-        updateExpressionIndicator();
         return;
     }
     const rounded = parseFloat(result.toFixed(12));
@@ -648,9 +692,33 @@ function handleEquals() {
     addHistoryLine(`${expression} = ${formattedResult}`);
     expression = String(rounded);
     justEvaluated = true;
-    expressionMode = false;
+    hasError = false;
     updateDisplay();
-    updateExpressionIndicator();
+}
+
+function updateStatusIndicator() {
+    const indicator = document.getElementById("statusIndicator");
+    if (!indicator) return;
+    
+    if (hasError) {
+        indicator.textContent = "ERR";
+        indicator.className = "status-indicator error";
+        return;
+    }
+    
+    indicator.className = "status-indicator";
+    
+    const trimmed = expression.trim();
+    if (trimmed === "" || trimmed === "0") {
+        indicator.textContent = "";
+        return;
+    }
+    
+    if (expression.match(/[\s+\-×÷(.,]$/)) {
+        indicator.textContent = "…";
+    } else {
+        indicator.textContent = "";
+    }
 }
 
 // ========== MEMORY FUNCTIONS ==========
@@ -680,6 +748,7 @@ function memoryRecall() {
     if (memoryIndicator) {
         expression = String(memory);
         justEvaluated = false;
+        hasError = false;
         updateDisplay();
         showToast("MR");
     }
@@ -731,6 +800,7 @@ historyContainer.addEventListener("mouseup", (e) => {
             if (!isNaN(num) && isFinite(num)) {
                 expression = String(num);
                 justEvaluated = false;
+                hasError = false;
                 updateDisplay();
             }
         }

@@ -330,7 +330,23 @@ html, body {
     font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
 }
 
-.exp-indicator {
+.status-indicator {
+    font-size: 14px;
+    opacity: 0.7;
+    color: var(--text-secondary);
+    text-align: left;
+    padding: 0 4px;
+    min-height: 20px;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+
+.status-indicator.error {
+    color: #fb7185;
+    opacity: 1;
+    font-weight: 600;
+}
+
+.paren-indicator {
     font-size: 14px;
     opacity: 0.7;
     color: var(--text-secondary);
@@ -380,7 +396,8 @@ html, body {
     <div class="history-container" id="historyContainer"></div>
     <div class="indicators">
         <span class="memory-indicator" id="memoryIndicator"></span>
-        <span class="exp-indicator" id="expIndicator"></span>
+        <span class="paren-indicator" id="parenIndicator"></span>
+        <span class="status-indicator" id="statusIndicator"></span>
     </div>
     <div class="display-wrapper">
         <input type="text" class="display" id="display" value="0">
