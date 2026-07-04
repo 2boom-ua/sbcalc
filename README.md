@@ -3,7 +3,7 @@
 A lightweight, elegant calculator Chrome/Edge extension that lives in your browser's side panel. Built with vanilla JavaScript and the [math.js](https://mathjs.org/) library for robust expression evaluation.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-1.1-green.svg)
+![Version](https://img.shields.io/badge/version-1.3-green.svg)
 
 ## Features
 
