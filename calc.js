@@ -798,8 +798,14 @@ historyContainer.addEventListener("mouseup", (e) => {
         if (match) {
             const num = parseFloat(match[1].replace(/\s/g, "").replace(",", "."));
             if (!isNaN(num) && isFinite(num)) {
-                expression = String(num);
-                justEvaluated = false;
+                // If expression ends with operator or opening paren, append the number
+                if (expression.match(/[\s+\-×÷(]$/)) {
+                    expression = expression + String(num);
+                } else {
+                    // Otherwise replace the entire expression
+                    expression = String(num);
+                    justEvaluated = false;
+                }
                 hasError = false;
                 updateDisplay();
             }
