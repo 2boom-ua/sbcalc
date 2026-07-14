@@ -177,17 +177,15 @@ function copyResult(useComma) {
 
 // ========== PASTE ==========
 function pasteFromClipboard(text) {
-    // Replace commas with dots, keep single spaces between tokens
+    // Replace commas with dots
     let cleaned = text.replace(/,/g, ".");
+    // Remove all spaces
+    cleaned = cleaned.replace(/\s/g, "");
     // Remove everything after = (including =)
     const equalIndex = cleaned.indexOf("=");
     if (equalIndex !== -1) {
         cleaned = cleaned.substring(0, equalIndex);
     }
-    // Replace multiple spaces with single space
-    cleaned = cleaned.replace(/[ \t]+/g, " ");
-    // Trim leading/trailing spaces
-    cleaned = cleaned.trim();
     // Protect log and ln from being removed
     cleaned = cleaned.replace(/log/g, 'ℒ');
     cleaned = cleaned.replace(/ln/g, 'ℕ');
