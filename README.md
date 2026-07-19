@@ -46,22 +46,6 @@ A lightweight, elegant calculator Chrome/Edge extension that lives in your brows
 | `%` | Percent |
 | `(` `)` | Parentheses |
 
-## File Structure
-
-```
-├── manifest.json      # Extension manifest (MV3)
-├── background.js      # Service worker — sets side panel behavior
-├── calc.html         # Side panel UI
-├── calc.js           # Calculator logic & event handling
-├── libs/
-│   └── math.min.js   # math.js library for evaluation
-└── icons/
-    ├── icon-16.png
-    ├── icon-32.png
-    ├── icon-48.png
-    └── icon-128.png
-```
-
 ## Permissions
 
 | Permission | Purpose |
